@@ -11,6 +11,8 @@ pub enum Command {
     Del { key: Bytes },
     Exists { keys: Vec<Bytes> },
     Incr { key: Bytes },
+    FlushAll,
+    DbSize,
     Expire { key: Bytes, seconds: u64 },
     Ttl { key: Bytes },
     HSet {
@@ -70,6 +72,12 @@ impl Command {
             let key = bulk_as_bytes(next_arg(&mut args, "INCR")?)?;
             ensure_no_extra_args(&mut args, "INCR")?;
             Ok(Command::Incr { key })
+        } else if ascii_eq_ignore_case(&cmd_name, b"FLUSHALL") {
+            ensure_no_extra_args(&mut args, "FLUSHALL")?;
+            Ok(Command::FlushAll)
+        } else if ascii_eq_ignore_case(&cmd_name, b"DBSIZE") {
+            ensure_no_extra_args(&mut args, "DBSIZE")?;
+            Ok(Command::DbSize)
         } else if ascii_eq_ignore_case(&cmd_name, b"EXPIRE") {
             let key = bulk_as_bytes(next_arg(&mut args, "EXPIRE")?)?;
             let secs: u64 = bulk_as_utf8(next_arg(&mut args, "EXPIRE")?, "EXPIRE")?

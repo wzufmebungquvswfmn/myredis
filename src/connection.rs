@@ -111,6 +111,13 @@ impl Connection {
                 Ok(value) => Frame::Integer(value).encode_into(&mut self.write_buf),
                 Err(message) => Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf),
             },
+            Command::FlushAll => {
+                self.db.flush_all();
+                self.write_buf.extend_from_slice(b"+OK\r\n");
+            }
+            Command::DbSize => {
+                Frame::Integer(self.db.dbsize()).encode_into(&mut self.write_buf);
+            }
             Command::Expire { key, seconds } => {
                 let ok = self.db.expire(&key, seconds) as i64;
                 Frame::Integer(ok).encode_into(&mut self.write_buf);

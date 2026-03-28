@@ -322,6 +322,20 @@ impl Db {
             },
         }
     }
+
+    pub fn flush_all(&self) {
+        self.entries.clear();
+    }
+
+    pub fn dbsize(&self) -> i64 {
+        let mut count = 0i64;
+        for entry_ref in self.entries.iter() {
+            if !entry_ref.value().is_expired() {
+                count += 1;
+            }
+        }
+        count
+    }
 }
 
 fn normalize_shard_count(shard_count: usize) -> usize {
