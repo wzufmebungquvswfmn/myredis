@@ -1,7 +1,7 @@
 use bytes::BytesMut;
+use std::io::ErrorKind;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use std::io::ErrorKind;
 use tracing::{debug, error, warn};
 
 use crate::command::Command;
@@ -90,7 +90,9 @@ impl Connection {
 
         match cmd {
             Command::Ping(None) => self.write_buf.extend_from_slice(b"+PONG\r\n"),
-            Command::Ping(Some(message)) => Frame::BulkString(message).encode_into(&mut self.write_buf),
+            Command::Ping(Some(message)) => {
+                Frame::BulkString(message).encode_into(&mut self.write_buf)
+            }
             Command::Set { key, value } => {
                 self.db.set(key, value);
                 self.write_buf.extend_from_slice(b"+OK\r\n");
@@ -98,10 +100,12 @@ impl Connection {
             Command::Get { key } => match self.db.get(&key) {
                 Ok(Some(v)) => Frame::BulkString(v).encode_into(&mut self.write_buf),
                 Ok(None) => self.write_buf.extend_from_slice(b"$-1\r\n"),
-                Err(message) => Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf),
+                Err(message) => {
+                    Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf)
+                }
             },
-            Command::Del { key } => {
-                let deleted = self.db.del(&key) as i64;
+            Command::Del { keys } => {
+                let deleted = keys.iter().map(|key| self.db.del(key) as i64).sum::<i64>();
                 Frame::Integer(deleted).encode_into(&mut self.write_buf);
             }
             Command::Exists { keys } => {
@@ -109,7 +113,9 @@ impl Connection {
             }
             Command::Incr { key } => match self.db.incr(&key) {
                 Ok(value) => Frame::Integer(value).encode_into(&mut self.write_buf),
-                Err(message) => Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf),
+                Err(message) => {
+                    Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf)
+                }
             },
             Command::FlushAll => {
                 self.db.flush_all();
@@ -118,52 +124,77 @@ impl Connection {
             Command::DbSize => {
                 Frame::Integer(self.db.dbsize()).encode_into(&mut self.write_buf);
             }
+            Command::Type { key } => {
+                Frame::SimpleString(self.db.key_type(&key).to_string())
+                    .encode_into(&mut self.write_buf);
+            }
             Command::Expire { key, seconds } => {
                 let ok = self.db.expire(&key, seconds) as i64;
                 Frame::Integer(ok).encode_into(&mut self.write_buf);
             }
-            Command::Ttl { key } => Frame::Integer(self.db.ttl(&key)).encode_into(&mut self.write_buf),
+            Command::Ttl { key } => {
+                Frame::Integer(self.db.ttl(&key)).encode_into(&mut self.write_buf)
+            }
             Command::HSet { key, items } => match self.db.hset(key, items) {
                 Ok(created) => Frame::Integer(created).encode_into(&mut self.write_buf),
-                Err(message) => Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf),
+                Err(message) => {
+                    Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf)
+                }
             },
             Command::HGet { key, field } => match self.db.hget(&key, &field) {
                 Ok(Some(v)) => Frame::BulkString(v).encode_into(&mut self.write_buf),
                 Ok(None) => self.write_buf.extend_from_slice(b"$-1\r\n"),
-                Err(message) => Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf),
+                Err(message) => {
+                    Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf)
+                }
             },
             Command::HDel { key, fields } => match self.db.hdel(&key, &fields) {
                 Ok(removed) => Frame::Integer(removed).encode_into(&mut self.write_buf),
-                Err(message) => Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf),
+                Err(message) => {
+                    Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf)
+                }
             },
             Command::HLen { key } => match self.db.hlen(&key) {
                 Ok(len) => Frame::Integer(len).encode_into(&mut self.write_buf),
-                Err(message) => Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf),
+                Err(message) => {
+                    Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf)
+                }
             },
             Command::LPush { key, values } => match self.db.lpush(key, values) {
                 Ok(len) => Frame::Integer(len).encode_into(&mut self.write_buf),
-                Err(message) => Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf),
+                Err(message) => {
+                    Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf)
+                }
             },
             Command::RPush { key, values } => match self.db.rpush(key, values) {
                 Ok(len) => Frame::Integer(len).encode_into(&mut self.write_buf),
-                Err(message) => Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf),
+                Err(message) => {
+                    Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf)
+                }
             },
             Command::LPop { key } => match self.db.lpop(&key) {
                 Ok(Some(v)) => Frame::BulkString(v).encode_into(&mut self.write_buf),
                 Ok(None) => self.write_buf.extend_from_slice(b"$-1\r\n"),
-                Err(message) => Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf),
+                Err(message) => {
+                    Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf)
+                }
             },
             Command::RPop { key } => match self.db.rpop(&key) {
                 Ok(Some(v)) => Frame::BulkString(v).encode_into(&mut self.write_buf),
                 Ok(None) => self.write_buf.extend_from_slice(b"$-1\r\n"),
-                Err(message) => Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf),
+                Err(message) => {
+                    Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf)
+                }
             },
             Command::LLen { key } => match self.db.llen(&key) {
                 Ok(len) => Frame::Integer(len).encode_into(&mut self.write_buf),
-                Err(message) => Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf),
+                Err(message) => {
+                    Frame::Error(format!("ERR {}", message)).encode_into(&mut self.write_buf)
+                }
             },
             Command::Unknown(name) => {
-                Frame::Error(format!("ERR unknown command '{}'", name)).encode_into(&mut self.write_buf);
+                Frame::Error(format!("ERR unknown command '{}'", name))
+                    .encode_into(&mut self.write_buf);
             }
         }
     }

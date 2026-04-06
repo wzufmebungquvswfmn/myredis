@@ -5,9 +5,16 @@ use crate::connection::Connection;
 use crate::storage::Db;
 
 pub async fn run(addr: &str, db: Db) {
-    let listener = TcpListener::bind(addr).await
+    let listener = TcpListener::bind(addr)
+        .await
         .expect("failed to bind address");
-    info!("myredis listening on {}", addr);
+    run_listener(listener, db).await;
+}
+
+pub async fn run_listener(listener: TcpListener, db: Db) {
+    if let Ok(addr) = listener.local_addr() {
+        info!("myredis listening on {}", addr);
+    }
 
     loop {
         match listener.accept().await {

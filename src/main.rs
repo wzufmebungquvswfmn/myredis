@@ -1,11 +1,5 @@
-mod command;
-mod connection;
-mod error;
-mod protocol;
-mod server;
-mod storage;
-
-use storage::Db;
+use myredis::server;
+use myredis::storage::Db;
 
 #[tokio::main]
 async fn main() {

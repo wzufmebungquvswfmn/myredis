@@ -1,6 +1,6 @@
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::collections::{HashMap, VecDeque};
 
 use bytes::Bytes;
 use dashmap::DashMap;
@@ -85,10 +85,13 @@ impl Db {
     }
 
     pub fn incr(&self, key: &[u8]) -> Result<i64, &'static str> {
-        let mut entry = self.entries.entry(Bytes::copy_from_slice(key)).or_insert(Entry {
-            value: Value::String(Bytes::from_static(b"0")),
-            expire_at: None,
-        });
+        let mut entry = self
+            .entries
+            .entry(Bytes::copy_from_slice(key))
+            .or_insert(Entry {
+                value: Value::String(Bytes::from_static(b"0")),
+                expire_at: None,
+            });
 
         if entry.is_expired() {
             entry.value = Value::String(Bytes::from_static(b"0"));
@@ -206,7 +209,12 @@ impl Db {
         self.push_list(key, values, false)
     }
 
-    fn push_list(&self, key: Bytes, values: Vec<Bytes>, to_left: bool) -> Result<i64, &'static str> {
+    fn push_list(
+        &self,
+        key: Bytes,
+        values: Vec<Bytes>,
+        to_left: bool,
+    ) -> Result<i64, &'static str> {
         let mut entry = self.entries.entry(key).or_insert(Entry {
             value: Value::List(VecDeque::new()),
             expire_at: None,
@@ -336,6 +344,25 @@ impl Db {
         }
         count
     }
+
+    pub fn key_type(&self, key: &[u8]) -> &'static str {
+        let entry = match self.entries.get(key) {
+            Some(e) => e,
+            None => return "none",
+        };
+
+        if entry.is_expired() {
+            drop(entry);
+            self.entries.remove(key);
+            return "none";
+        }
+
+        match &entry.value {
+            Value::String(_) => "string",
+            Value::Hash(_) => "hash",
+            Value::List(_) => "list",
+        }
+    }
 }
 
 fn normalize_shard_count(shard_count: usize) -> usize {
@@ -443,7 +470,10 @@ mod tests {
             ),
             Ok(2)
         );
-        assert_eq!(db.lpush(Bytes::from_static(b"l"), vec![Bytes::from_static(b"x")]), Ok(3));
+        assert_eq!(
+            db.lpush(Bytes::from_static(b"l"), vec![Bytes::from_static(b"x")]),
+            Ok(3)
+        );
         assert_eq!(db.llen(b"l"), Ok(3));
         assert_eq!(db.lpop(b"l"), Ok(Some(Bytes::from_static(b"x"))));
         assert_eq!(db.rpop(b"l"), Ok(Some(Bytes::from_static(b"b"))));

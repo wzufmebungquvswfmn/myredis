@@ -6,27 +6,66 @@ use bytes::Bytes;
 #[derive(Debug)]
 pub enum Command {
     Ping(Option<Bytes>),
-    Set { key: Bytes, value: Bytes },
-    Get { key: Bytes },
-    Del { key: Bytes },
-    Exists { keys: Vec<Bytes> },
-    Incr { key: Bytes },
+    Set {
+        key: Bytes,
+        value: Bytes,
+    },
+    Get {
+        key: Bytes,
+    },
+    Del {
+        keys: Vec<Bytes>,
+    },
+    Exists {
+        keys: Vec<Bytes>,
+    },
+    Incr {
+        key: Bytes,
+    },
     FlushAll,
     DbSize,
-    Expire { key: Bytes, seconds: u64 },
-    Ttl { key: Bytes },
+    Type {
+        key: Bytes,
+    },
+    Expire {
+        key: Bytes,
+        seconds: u64,
+    },
+    Ttl {
+        key: Bytes,
+    },
     HSet {
         key: Bytes,
         items: Vec<(Bytes, Bytes)>,
     },
-    HGet { key: Bytes, field: Bytes },
-    HDel { key: Bytes, fields: Vec<Bytes> },
-    HLen { key: Bytes },
-    LPush { key: Bytes, values: Vec<Bytes> },
-    RPush { key: Bytes, values: Vec<Bytes> },
-    LPop { key: Bytes },
-    RPop { key: Bytes },
-    LLen { key: Bytes },
+    HGet {
+        key: Bytes,
+        field: Bytes,
+    },
+    HDel {
+        key: Bytes,
+        fields: Vec<Bytes>,
+    },
+    HLen {
+        key: Bytes,
+    },
+    LPush {
+        key: Bytes,
+        values: Vec<Bytes>,
+    },
+    RPush {
+        key: Bytes,
+        values: Vec<Bytes>,
+    },
+    LPop {
+        key: Bytes,
+    },
+    RPop {
+        key: Bytes,
+    },
+    LLen {
+        key: Bytes,
+    },
     Unknown(String),
 }
 
@@ -41,7 +80,9 @@ impl Command {
         let cmd_name = bulk_as_bytes(next_arg(&mut args, "command")?)?;
 
         if ascii_eq_ignore_case(&cmd_name, b"PING") {
-            let message = optional_arg(&mut args, "PING")?.map(bulk_as_bytes).transpose()?;
+            let message = optional_arg(&mut args, "PING")?
+                .map(bulk_as_bytes)
+                .transpose()?;
             ensure_no_extra_args(&mut args, "PING")?;
             Ok(Command::Ping(message))
         } else if ascii_eq_ignore_case(&cmd_name, b"GET") {
@@ -54,9 +95,16 @@ impl Command {
             ensure_no_extra_args(&mut args, "SET")?;
             Ok(Command::Set { key, value })
         } else if ascii_eq_ignore_case(&cmd_name, b"DEL") {
-            let key = bulk_as_bytes(next_arg(&mut args, "DEL")?)?;
-            ensure_no_extra_args(&mut args, "DEL")?;
-            Ok(Command::Del { key })
+            let mut keys = Vec::new();
+            while let Some(frame) = args.next() {
+                keys.push(bulk_as_bytes(frame)?);
+            }
+            if keys.is_empty() {
+                return Err(MyRedisError::Command(
+                    "wrong number of arguments for 'DEL'".into(),
+                ));
+            }
+            Ok(Command::Del { keys })
         } else if ascii_eq_ignore_case(&cmd_name, b"EXISTS") {
             let mut keys = Vec::new();
             while let Some(frame) = args.next() {
@@ -78,6 +126,10 @@ impl Command {
         } else if ascii_eq_ignore_case(&cmd_name, b"DBSIZE") {
             ensure_no_extra_args(&mut args, "DBSIZE")?;
             Ok(Command::DbSize)
+        } else if ascii_eq_ignore_case(&cmd_name, b"TYPE") {
+            let key = bulk_as_bytes(next_arg(&mut args, "TYPE")?)?;
+            ensure_no_extra_args(&mut args, "TYPE")?;
+            Ok(Command::Type { key })
         } else if ascii_eq_ignore_case(&cmd_name, b"EXPIRE") {
             let key = bulk_as_bytes(next_arg(&mut args, "EXPIRE")?)?;
             let secs: u64 = bulk_as_utf8(next_arg(&mut args, "EXPIRE")?, "EXPIRE")?
@@ -167,9 +219,8 @@ impl Command {
 }
 
 fn next_arg(iter: &mut impl Iterator<Item = Frame>, cmd: &str) -> Result<Frame> {
-    iter.next().ok_or_else(|| {
-        MyRedisError::Command(format!("wrong number of arguments for '{}'", cmd))
-    })
+    iter.next()
+        .ok_or_else(|| MyRedisError::Command(format!("wrong number of arguments for '{}'", cmd)))
 }
 
 fn optional_arg(iter: &mut impl Iterator<Item = Frame>, _cmd: &str) -> Result<Option<Frame>> {
@@ -292,6 +343,37 @@ mod tests {
         let frame = Frame::Array(vec![bulk("EXISTS")]);
         let err = Command::from_frame(frame).unwrap_err();
         assert!(matches!(err, MyRedisError::Command(_)));
+    }
+
+    #[test]
+    fn parses_del_variadic() {
+        let frame = Frame::Array(vec![bulk("DEL"), bulk("k1"), bulk("k2")]);
+        let cmd = Command::from_frame(frame).unwrap();
+        match cmd {
+            Command::Del { keys } => {
+                assert_eq!(keys.len(), 2);
+                assert_eq!(keys[0], Bytes::from_static(b"k1"));
+                assert_eq!(keys[1], Bytes::from_static(b"k2"));
+            }
+            other => panic!("unexpected command: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn rejects_del_without_keys() {
+        let frame = Frame::Array(vec![bulk("DEL")]);
+        let err = Command::from_frame(frame).unwrap_err();
+        assert!(matches!(err, MyRedisError::Command(_)));
+    }
+
+    #[test]
+    fn parses_type_command() {
+        let frame = Frame::Array(vec![bulk("TYPE"), bulk("k")]);
+        let cmd = Command::from_frame(frame).unwrap();
+        match cmd {
+            Command::Type { key } => assert_eq!(key, Bytes::from_static(b"k")),
+            other => panic!("unexpected command: {:?}", other),
+        }
     }
 
     #[test]
